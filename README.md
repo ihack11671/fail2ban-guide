@@ -77,4 +77,4 @@ This project and its documentation are released under the MIT License.
 
 ---
 
-*Guide maintained by CCT Moses Bahati – Africa CyberSecurity Consortium && wiltech training && cyber explore.*
+*Guide maintained by CCT Moses Bahati – Africa CyberSecurity Consortium(ACC) && wilLtech academy Cybersecurity && CybExplore.*
