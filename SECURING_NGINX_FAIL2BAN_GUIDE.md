@@ -55,6 +55,7 @@ ignoreregex =
 ---
 
 ## Nginx Configuration Hardening
+THis is just to harden your server against different slow attacks, not necessarily a part of fail2ban. It is good to have these configurations
 
 Edit the main config:
 
@@ -101,7 +102,7 @@ server {
 }
 ```
 
-Test and reload:
+Test and reload, Just to ensure nginx works well after the configurations :
 
 ```bash
 sudo nginx -t
@@ -147,7 +148,7 @@ sudo systemctl restart fail2ban
 ---
 
 ## Advanced Setup: Email Alerts Integration
-
+To enable automated email alerts on your server, it's important to configure a trusted SMTP relay service. While this guide initially used Mailgun, I recommend SMTP2GO for its generous free tier and ease of integration. SMTP2GO allows your server (in this case, hosted on DigitalOcean) to relay emails securely using authenticated SMTP. This involves creating an account, obtaining your SMTP credentials (server, port, username, and password), and then configuring your domain’s DNS settings with SPF, DKIM, and CNAME records. These DNS records are essential to verify that your domain is authorized to send email on your behalf — helping to prevent spoofing and ensuring high deliverability. Once verified, your server can send email alerts (e.g., from Fail2Ban or other scripts) by using these credentials via Python or mail clients like msmtp or Postfix. The process is straightforward, and you can even use AI tools to help automate or validate your configuration.
 1. **Set up Mailgun account**, get API key and domain.
 2. **Create script** `/usr/local/bin/send-alerts.py`:
 
@@ -219,7 +220,82 @@ if __name__ == "__main__":
     else:
         print("Usage: send-alerts.py <message> [ip]")
 ```
+Using SMTP2GO SCRIPT :
 
+```
+#!/usr/bin/env python3
+import requests
+import subprocess
+
+# SMTP2GO Configuration
+SMTP2GO_API_KEY = "your-smtp2go-api-key"
+EMAIL_TO = "your@email.com"
+EMAIL_FROM = "alerts@yourdomain.com"
+
+def get_ip_info(ip):
+    try:
+        response = requests.get(f"http://ip-api.com/json/{ip}")
+        if response.status_code == 200:
+            data = response.json()
+            if data["status"] == "success":
+                return (
+                    f"IP Info:\n"
+                    f"- IP: {data['query']}\n"
+                    f"- Country: {data['country']}\n"
+                    f"- Region: {data['regionName']}\n"
+                    f"- City: {data['city']}\n"
+                    f"- ISP: {data['isp']}"
+                )
+        return f"IP Info: Unable to fetch details for IP {ip}."
+    except Exception as e:
+        return f"IP Info: Error fetching IP details ({e})"
+
+def get_log_lines(ip):
+    try:
+        cmd = ["grep", ip, "/var/log/fail2ban.log"]
+        output = subprocess.check_output(cmd, text=True)
+        return f"\n📜 Log Lines:\n{output.strip()}"
+    except subprocess.CalledProcessError:
+        return "\n📜 Log Lines: No log lines found for this IP."
+
+def send_email(subject, message):
+    try:
+        response = requests.post(
+            "https://api.smtp2go.com/v3/email/send",
+            json={
+                "api_key": SMTP2GO_API_KEY,
+                "to": [EMAIL_TO],
+                "sender": EMAIL_FROM,
+                "subject": subject,
+                "text_body": message,
+                "html_body": f"<pre>{message}</pre>"
+            }
+        )
+        if response.status_code == 200:
+            print("✅ Email sent successfully.")
+        else:
+            print(f"❌ Failed to send email: {response.status_code} - {response.text}")
+    except Exception as e:
+        print(f"⚠️ Error sending email: {e}")
+
+def send_alert(subject, message, ip=None):
+    if ip:
+        ip_info = get_ip_info(ip)
+        logs = get_log_lines(ip)
+        message += f"\n\n{ip_info}{logs}"
+    send_email(subject, message)
+
+if __name__ == "__main__":
+    import sys
+    if len(sys.argv) > 2:
+        ip = sys.argv[2]
+        send_alert("Fail2Ban Alert", sys.argv[1], ip)
+    elif len(sys.argv) > 1:
+        send_alert("Fail2Ban Alert", sys.argv[1])
+    else:
+        print("Usage: send-alerts.py <message> [ip]")
+
+```
 Make it executable:
 
 ```bash
@@ -242,10 +318,25 @@ actionunban = iptables -D f2b-<name> -s <ip> -j REJECT
               /usr/local/bin/send-alerts.py "✅ IP Unbanned in jail <name>: <ip>" <ip>
 ```
 
-In `jail.local` use:
+In `jail.local` update to use:
 
-```ini
+```
 action = custom-mwl
+```
+full updated file :
+```
+[nginx-slowloris]
+persistent = true
+enabled = true
+filter = nginx-slowloris
+port = http,https
+logpath = /var/log/nginx/access.log
+logencoding = utf-8
+maxretry = 5
+findtime = 30
+bantime = 172800
+action = custom-mwl
+
 ```
 
 Restart Fail2Ban again:
